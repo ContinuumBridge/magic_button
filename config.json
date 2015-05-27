@@ -1,9 +1,9 @@
 {
     "exe": "magic_button.py", 
     "description": "An app to handle Bluetooth Magic Buttons", 
-    "url": "https://github.com/ContinuumBridge/magic_button/archive/v0.0.1.tar.gz", 
+    "url": "https://github.com/ContinuumBridge/magic_button/archive/v0.1.0.tar.gz", 
     "app_resource": "/api/bridge/v1/app/27", 
-    "version": "0.0.1", 
+    "version": "0.1.0", 
     "provider": "ContinuumBridge", 
     "name": "Magic Button"
 }
