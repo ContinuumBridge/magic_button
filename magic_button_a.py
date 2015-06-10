@@ -93,7 +93,7 @@ class App(CbApp):
                 self.sendMessage(req, message["id"])
 
     def onAdaptorData(self, message):
-        #self.cbLog("debug", "onAdaptorData, message: " + str(json.dumps(message, indent=4)))
+        self.cbLog("debug", "onAdaptorData, message: " + str(json.dumps(message, indent=4)))
         try:
             if self.state != "running":
                 self.setState("running")
@@ -140,6 +140,10 @@ class App(CbApp):
                 config[c] = True
             elif c.lower in ("false", "f", "0"):
                 config[c] = False
+        try:
+            config["uuids"] = [u.upper() for u in config["uuids"]]
+        except Exception as ex:
+            self.cbLog("warning", "Problem upper-casing uuids. Type: " + str(type(ex)) + ", exception: " +  str(ex.args))
         self.cbLog("debug", "Config: " + str(json.dumps(config, indent=4)))
         now = time.time()
         for adaptor in managerConfig["adaptors"]:
