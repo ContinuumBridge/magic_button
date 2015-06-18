@@ -14,8 +14,8 @@ from cbcommslib import CbApp, CbClient
 from cbconfig import *
 
 configFile          = CB_CONFIG_DIR + "magic_button.config"
-CHECK_INTERVAL      = 120
-WATCHDOG_INTERVAL   = 120
+CHECK_INTERVAL      = 30
+WATCHDOG_INTERVAL   = 40
 config = {
           "uuids": [ ],
           "cid": "undefined"
@@ -103,10 +103,9 @@ class App(CbApp):
                     buttonState = message["data"]["minor"] & 0x01
                     if buttonID in self.buttonStates:
                         self.buttonStates[buttonID]["connectTime"] = time.time()
-                        if abs(self.buttonStates[buttonID]["rssi"] - message["data"]["rx_power"]) > 3:
+                        if abs(self.buttonStates[buttonID]["rssi"] - message["data"]["rx_power"]) > 4:
                             self.buttonStates[buttonID]["rssi"] = message["data"]["rx_power"]
                             self.buttonStates[buttonID]["rssi_changed"] = True
-                        self.buttonStates[buttonID]["rssi"] = message["data"]["rx_power"]
                     else:
                         self.buttonStates[buttonID] = {
                             "connectTime": time.time(),
@@ -114,11 +113,11 @@ class App(CbApp):
                             "rssi_changed": True,
                             "state": -1
                         }
-                    if buttonState != self.buttonStates[buttonID]["state"]:
+                    if buttonState != self.buttonStates[buttonID]["state"] or self.buttonStates[buttonID]["rssi_changed"]:
                         self.buttonStates[buttonID]["state"] = buttonState
-                        toClient = {"b": message["data"]["major"],
-                                    "s": buttonState,
-                                    "p": message["data"]["rx_power"],
+                        toClient = {"b": buttonID,
+                                    "s": self.buttonStates[buttonID]["state"],
+                                    "p": self.buttonStates[buttonID]["rssi"],
                                     "c": True
                                    }
                         self.client.send(toClient)
