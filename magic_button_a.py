@@ -15,7 +15,7 @@ from cbconfig import *
 
 configFile          = CB_CONFIG_DIR + "magic_button.config"
 CHECK_INTERVAL      = 30
-WATCHDOG_INTERVAL   = 40
+WATCHDOG_INTERVAL   = 70
 config = {
           "uuids": [ ],
           "cid": "undefined"
@@ -46,22 +46,16 @@ class App(CbApp):
         if self.buttonStates != {}:
             delkeys = []
             for b in self.buttonStates:
-                self.cbLog("debug", "checkConnected, buttonStates: " + str(self.buttonStates) + ", b: " + str(b))
+                #self.cbLog("debug", "checkConnected, buttonStates: " + str(self.buttonStates) + ", b: " + str(b))
                 if now - self.buttonStates[b]["connectTime"] > WATCHDOG_INTERVAL:
+                    self.buttonStates[b]["rssi"] = -200
                     toClient = {"b": b,
                                 "p": self.buttonStates[b]["rssi"],
                                 "c": False
                                }
                     self.client.send(toClient)
                     delkeys.append(b)
-                elif self.buttonStates[b]["rssi_changed"]:
-                    toClient = {"b": b,
-                                "p": self.buttonStates[b]["rssi"],
-                                "c": True
-                               }
-                    self.client.send(toClient)
-                    self.buttonStates[b]["rssi_changed"] = False
-                self.cbLog("debug", "checkConnected, buttonStates after del: " + str(self.buttonStates))
+                #self.cbLog("debug", "checkConnected, buttonStates after del: " + str(self.buttonStates))
             for d in delkeys:
                 del self.buttonStates[d]
 
@@ -93,35 +87,45 @@ class App(CbApp):
                 self.sendMessage(req, message["id"])
 
     def onAdaptorData(self, message):
-        self.cbLog("debug", "onAdaptorData, message: " + str(json.dumps(message, indent=4)))
+        #self.cbLog("debug", "onAdaptorData, message: " + str(json.dumps(message, indent=4)))
         try:
             if self.state != "running":
                 self.setState("running")
             if message["characteristic"] == "ble_beacon":
                 if message["data"]["uuid"] in config["uuids"]:
+                    changed = False
                     buttonID = message["data"]["major"]
                     buttonState = message["data"]["minor"] & 0x01
                     if buttonID in self.buttonStates:
                         self.buttonStates[buttonID]["connectTime"] = time.time()
-                        if abs(self.buttonStates[buttonID]["rssi"] - message["data"]["rx_power"]) > 4:
-                            self.buttonStates[buttonID]["rssi"] = message["data"]["rx_power"]
-                            self.buttonStates[buttonID]["rssi_changed"] = True
                     else:
                         self.buttonStates[buttonID] = {
                             "connectTime": time.time(),
-                            "rssi":  message["data"]["rx_power"],
-                            "rssi_changed": True,
                             "state": -1
                         }
-                    if buttonState != self.buttonStates[buttonID]["state"] or self.buttonStates[buttonID]["rssi_changed"]:
+                        self.cbLog("info", "New button: " + str(buttonID))
+                    if buttonState != self.buttonStates[buttonID]["state"]:
                         self.buttonStates[buttonID]["state"] = buttonState
+                        self.buttonStates[buttonID]["rssi"] = message["data"]["rx_power"]
+                        self.buttonStates[buttonID]["rssi_time"] = time.time()
+                        changed = True
+                    elif abs(self.buttonStates[buttonID]["rssi"] - message["data"]["rx_power"]) > 10:
+                        self.buttonStates[buttonID]["rssi"] = message["data"]["rx_power"]
+                        self.buttonStates[buttonID]["rssi_time"] = time.time()
+                        changed = True
+                    elif abs(self.buttonStates[buttonID]["rssi"] - message["data"]["rx_power"]) > 3:
+                        if time.time() - self.buttonStates[buttonID]["rssi_time"] > 60 * 15:
+                            self.buttonStates[buttonID]["rssi"] = message["data"]["rx_power"]
+                            self.buttonStates[buttonID]["rssi_time"] = time.time()
+                            changed = True
+                    if changed:
                         toClient = {"b": buttonID,
                                     "s": self.buttonStates[buttonID]["state"],
                                     "p": self.buttonStates[buttonID]["rssi"],
                                     "c": True
                                    }
                         self.client.send(toClient)
-                        self.buttonStates[buttonID]["rssi_changed"] = False
+                        self.cbLog("debug", "Sent to client: " + str(json.dumps(toClient, indent=4)))
         except Exception as ex:
             self.cbLog("warning", "onAdaptorData problem. Type: " + str(type(ex)) + ", exception: " +  str(ex.args))
 
@@ -153,7 +157,7 @@ class App(CbApp):
                 friendly_name = adaptor["friendly_name"]
                 self.idToName[adtID] = friendly_name.replace(" ", "_")
                 self.devices.append(adtID)
-        self.client = CbClient(self.id, config["cid"])
+        self.client = CbClient(self.id, config["cid"], 3)
         self.client.onClientMessage = self.onClientMessage
         self.client.sendMessage = self.sendMessage
         self.client.cbLog = self.cbLog
