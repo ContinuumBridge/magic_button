@@ -16,10 +16,17 @@ from cbconfig import *
 configFile          = CB_CONFIG_DIR + "magic_button.config"
 CHECK_INTERVAL      = 30
 WATCHDOG_INTERVAL   = 70
+MAX_SEND_INTERVAL   = 60*30     # Ensure we have sent a message to client within this time
+CID                 = "CID157"  # Client ID
 config = {
-          "uuids": [ ],
-          "cid": "undefined"
+          "uuids": [ ]
 }
+
+def nicetime(timeStamp):
+    localtime = time.localtime(timeStamp)
+    milliseconds = '%03d' % int((timeStamp - int(timeStamp)) * 1000)
+    now = time.strftime('%H:%M:%S, %d-%m-%Y', localtime)
+    return now
 
 class App(CbApp):
     def __init__(self, argv):
@@ -27,6 +34,8 @@ class App(CbApp):
         self.devices = []
         self.idToName = {} 
         self.buttonStates = {}
+        self.beaconAdaptor = None
+        self.lastSent = 0  # When a message was last sent to the client
         # Super-class init must be called
         CbApp.__init__(self, argv)
 
@@ -54,37 +63,51 @@ class App(CbApp):
                                 "c": False
                                }
                     self.client.send(toClient)
+                    self.cbLog("debug", "checkConnected, button no longer connected: " + str(json.dumps(toClient, indent=4)))
+                    self.lastSent = now
                     delkeys.append(b)
+                    self.cbLog("debug", "checkConnected, buttonStates after del: " + str(self.buttonStates))
                 #self.cbLog("debug", "checkConnected, buttonStates after del: " + str(self.buttonStates))
             for d in delkeys:
                 del self.buttonStates[d]
+        if now - self.lastSent > MAX_SEND_INTERVAL:
+            self.cbLog("debug", "Exceeded MAX_SEND_INTERVAL")
+            self.lastSent = now
+            toClient = {"status": "init"}
+            self.client.send(toClient)
 
     def onClientMessage(self, message):
         self.cbLog("debug", "onClientMessage, message: " + str(json.dumps(message, indent=4)))
         global config
         if "uuids" in message:
             config["uuids"] = message["uuids"]
-            self.cbLog("debug", "onClientMessage, updated UUIDs: " + str(json.dumps(config, indent=4)))
+            #self.cbLog("debug", "onClientMessage, updated UUIDs: " + str(json.dumps(config, indent=4)))
             try:
                 with open(configFile, 'w') as f:
                     json.dump(config, f)
             except Exception as ex:
                 self.cbLog("warning", "onClientMessage, could not write to file. Type: " + str(type(ex)) + ", exception: " +  str(ex.args))
+            self.readLocalConfig()
+            self.requestUUIDs(self.beaconAdaptor)
+
+    def requestUUIDs(self, adaptor):
+        req = {"id": self.id,
+               "request": "service",
+               "service": [
+                           {"characteristic": "ble_beacon",
+                            "interval": 1.0,
+                            "uuids": config["uuids"]
+                           }
+                          ]
+              }
+        self.sendMessage(req, adaptor)
 
     def onAdaptorService(self, message):
         #self.cbLog("debug", "onAdaptorService, message: " + str(message))
         for p in message["service"]:
             if p["characteristic"] == "ble_beacon":
-                req = {"id": self.id,
-                       "request": "service",
-                       "service": [
-                                   {"characteristic": "ble_beacon",
-                                    "interval": 1.0,
-                                    "uuids": config["uuids"]
-                                   }
-                                  ]
-                      }
-                self.sendMessage(req, message["id"])
+                self.beaconAdaptor = message["id"]
+                self.requestUUIDs(self.beaconAdaptor)
 
     def onAdaptorData(self, message):
         #self.cbLog("debug", "onAdaptorData, message: " + str(json.dumps(message, indent=4)))
@@ -98,6 +121,7 @@ class App(CbApp):
                     buttonState = message["data"]["minor"] & 0x01
                     if buttonID in self.buttonStates:
                         self.buttonStates[buttonID]["connectTime"] = time.time()
+                        self.cbLog("debug", "Button " + str(buttonID) + " seen at time " + nicetime(time.time()))
                     else:
                         self.buttonStates[buttonID] = {
                             "connectTime": time.time(),
@@ -129,12 +153,12 @@ class App(CbApp):
         except Exception as ex:
             self.cbLog("warning", "onAdaptorData problem. Type: " + str(type(ex)) + ", exception: " +  str(ex.args))
 
-    def onConfigureMessage(self, managerConfig):
+    def readLocalConfig(self):
         global config
         try:
             with open(configFile, 'r') as f:
                 newConfig = json.load(f)
-                self.cbLog("debug", "Read simple_beacon_app.config")
+                self.cbLog("debug", "Read local config")
                 config.update(newConfig)
         except Exception as ex:
             self.cbLog("warning", "Problem reading magic_button.config. Type: " + str(type(ex)) + ", exception: " +  str(ex.args))
@@ -148,6 +172,9 @@ class App(CbApp):
         except Exception as ex:
             self.cbLog("warning", "Problem upper-casing uuids. Type: " + str(type(ex)) + ", exception: " +  str(ex.args))
         self.cbLog("debug", "Config: " + str(json.dumps(config, indent=4)))
+
+    def onConfigureMessage(self, managerConfig):
+        self.readLocalConfig()
         now = time.time()
         for adaptor in managerConfig["adaptors"]:
             adtID = adaptor["id"]
@@ -157,7 +184,7 @@ class App(CbApp):
                 friendly_name = adaptor["friendly_name"]
                 self.idToName[adtID] = friendly_name.replace(" ", "_")
                 self.devices.append(adtID)
-        self.client = CbClient(self.id, config["cid"], 3)
+        self.client = CbClient(self.id, CID, 3)
         self.client.onClientMessage = self.onClientMessage
         self.client.sendMessage = self.sendMessage
         self.client.cbLog = self.cbLog
