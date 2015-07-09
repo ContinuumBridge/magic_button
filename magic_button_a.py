@@ -75,6 +75,7 @@ class App(CbApp):
             self.lastSent = now
             toClient = {"status": "init"}
             self.client.send(toClient)
+        reactor.callLater(CHECK_INTERVAL, self.checkConnected)
 
     def onClientMessage(self, message):
         self.cbLog("debug", "onClientMessage, message: " + str(json.dumps(message, indent=4)))
@@ -191,8 +192,7 @@ class App(CbApp):
         self.client.onClientMessage = self.onClientMessage
         self.client.sendMessage = self.sendMessage
         self.client.cbLog = self.cbLog
-        l = task.LoopingCall(self.checkConnected)
-        l.start(CHECK_INTERVAL)
+        reactor.callLater(CHECK_INTERVAL, self.checkConnected)
         self.setState("starting")
 
 if __name__ == '__main__':
