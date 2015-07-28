@@ -9,7 +9,7 @@ import sys
 import os.path
 import time
 import json
-from twisted.internet import task
+from twisted.internet import reactor
 from cbcommslib import CbApp, CbClient
 from cbconfig import *
 
